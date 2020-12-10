@@ -1,15 +1,14 @@
 import numpy as np
 import pandas as pd
 import warnings
+from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV, KFold
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from datetime import datetime as dt
-from datetime import timedelta as td
 
 warnings.filterwarnings("ignore")
 
@@ -33,14 +32,14 @@ def load_data():
     return df1, df2
 
 
-def resample_data(df1, df2, freq='S'):
+def resample_data(df1, df2, t='S'):
 
     df1.dt = pd.to_datetime(df1.dt)
     df2.dt = pd.to_datetime(df2.dt)
     df1 = df1.set_index('dt', drop=True)
     df2 = df2.set_index('dt', drop=True)
-    df1 = df1.resample(freq).mean()
-    df2 = df2.resample(freq).mean()
+    df1 = df1.resample(t).mean()
+    df2 = df2.resample(t).mean()
     print('............... Resampling completed.')
     return  df1, df2
 
@@ -100,8 +99,7 @@ def grid_search(x_train, y_train, x_test, y_test, model, pg, cv=5):
     print(classification_report(y_test, y_test_pred))
     print('---------------- Confusion matrix ----------------')
     print(confusion_matrix(y_test, y_test_pred))
-    print('----------------\n Accuracy test data: %.3f' % accuracy_score(y_test, y_test_pred))
-
+    print('----------------\n\nAccuracy test data: %.3f' % accuracy_score(y_test, y_test_pred))
 
 
 def get_log_regr_best(x_train, y_train, x_test, y_test):
@@ -113,8 +111,7 @@ def get_log_regr_best(x_train, y_train, x_test, y_test):
 
 def get_svm_best(x_train, y_train, x_test, y_test):
 
-    pg = {'C': [10**i for i in range(-3, 3, 1)], 'kernel': ('linear', 'rbf')}
-    # pg = {'C': [0.01], 'kernel': ['rbf'], 'gamma': [0.0001]}
+    pg = {'C': [10**i for i in range(-3, 4, 1)], 'kernel': ('linear', 'rbf')}
     kf = KFold(n_splits=5, shuffle=True)
     return grid_search(x_train, y_train, x_test, y_test, SVC(), pg, cv=kf)
 
@@ -136,24 +133,34 @@ def get_forrest_best(x_train, y_train, x_test, y_test):
 def get_gb_best(x_train, y_train, x_test, y_test):
 
     kf = KFold(n_splits=5, shuffle=True)
-    gb_clfs = [(i, GradientBoostingClassifier(n_estimators=i)) for i in [200, 300, 400]]
-    cv_acc(gb_clfs, x_train, y_train, kf)
-    # pg = {'n_estimators': [200, 300, 400]}
-    # return grid_search(x_train, y_train, x_test, y_test, GradientBoostingClassifier(), pg)
+    gb_clfs = [(n_est, GradientBoostingClassifier(n_estimators=n_est)) for n_est in [100, 300, 500]]
+    best_estimator = cv_acc(gb_clfs, x_train, y_train, kf)
+    best_estimator.fit(x_train, y_train)
+    y_test_pred = best_estimator.predict(x_test)
+    print('\n--------------- Classification report -------------')
+    print(classification_report(y_test, y_test_pred))
+    print('----------------- Confusion matrix -----------------')
+    print(confusion_matrix(y_test, y_test_pred))
+    print('----------------------------------------------------'
+          '\n\nAccuracy test data: %.3f' % accuracy_score(y_test, y_test_pred))
 
 
 def cv_acc(clfs, X, y, cv):
 
-    for n, clf in clfs:
+    acc_scores = []
+    for n_est, clf in clfs:
         start_time = dt.now()
         scores = cross_val_score(estimator=clf, X=X, y=y, cv=cv, scoring='accuracy')
         end_time = dt.now() - start_time
-        print("n_estimators: %f: accuracy = %0.8f | time elapsed: " % (n, scores.mean()), end_time)
+        print("n_estimators: %f: accuracy = %0.8f | time elapsed: " % (n_est, scores.mean()), end_time)
+        acc_scores.append(scores.mean())
+    best_estimator = clfs[np.argmax(acc_scores)]
+    return best_estimator[1]
 
 
 if __name__ == '__main__':
     df1, df2 = load_data()
-    df1, df2 = resample_data(df1, df2, freq='S')
+    df1, df2 = resample_data(df1, df2, t='S')
     x_train, x_test, y_train, y_test = get_splitted_data(df1, df2)
     x_train_std, x_test_std = get_scaled_data(x_train, x_test)
 
